@@ -24,8 +24,6 @@ reqwest = { version = "0.12.19", default-features = false, features = [
     "rustls-tls",
     "brotli",
     "gzip",
-    "http2",
-    "socks",
 ] }
 tokio = { version = "1.47.1", features = [
     "rt-multi-thread",
@@ -72,7 +70,7 @@ async-trait = { version = "0.1.86", default-features = false }
 regex = { version = "1.12.3", features = ["perf", "std"], default-features = false }
 futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
 dhat = { version = "0.3.2", optional = true, default-features = false }
-mimalloc = { version = "0.1.43", default-features = false }
+mimalloc = { version = "0.1.43", default-features = false, optional = true }
 actix-governor = { version = "0.10.0", default-features = false, optional = true }
 moka = { version = "0.12.13", optional = true, default-features = false, features = [
     "future",
@@ -170,6 +168,9 @@ opt-level = "s"
 [profile.bsr2]
 inherits = "bsr1"
 opt-level = "z"
+# Override release's `lto = 'thin'` with full LTO for tighter cross-crate
+# inlining + deadcode elim. ~2-3x slower link, but worth it for distributed bins.
+lto = "fat"
 
 [profile.lpcb1]
 inherits = "release"
@@ -227,6 +228,10 @@ html-edition = [
     "dep:stop-words",
     "dep:fake-useragent",
     "dep:openssl-sys",
+    "dep:mimalloc",
+    # Restore reqwest features the api-only build no longer needs.
+    "reqwest/http2",
+    "reqwest/socks",
 ]
 
 use-synonyms-search = ["thesaurus/static"]

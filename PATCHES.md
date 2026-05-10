@@ -64,6 +64,16 @@ When merging upstream (`.github/workflows/upstream-sync.yml` opens a PR weekly),
 - **Upstream conflict risk:** low — single Cargo.toml line.
 - **Verify after rebase:** `cargo build` (html edition) still succeeds; `cargo build --bin tinysurfx --no-default-features --features api-only` does NOT pull openssl-sys (`cargo tree --no-default-features --features api-only -i openssl-sys` returns nothing).
 
+### P12 — Trim reqwest features + opt-in mimalloc + fat LTO
+- **Files:** `Cargo.toml` (drops `http2` and `socks` from regular reqwest features, adds them back to `html-edition`; mimalloc `optional = true` and added to `html-edition`; bsr2 profile gets `lto = "fat"`), `src/aggregator.rs` (cfg-gates the `.http2_adaptive_window(...)` call behind `not(api-only)` since the method requires the http2 reqwest feature).
+- **Purpose:** Smaller api-only binary (~5.5 MB → ~4.2 MB stripped).
+  - Dropping `http2` removes the `h2` crate (~240 KB).
+  - Dropping `socks` saves a few dozen KB and lets users use http(s) proxies only.
+  - Mimalloc was already unused by the api-only bin (only `src/main.rs` installs it as global allocator); opt-in saves ~50-100 KB.
+  - `lto = "fat"` in bsr2 enables aggressive cross-crate inlining + dead code elim (slower link, ~2-3x).
+- **Upstream conflict risk:** low for Cargo.toml; medium for the one cfg-gate in `aggregator.rs`.
+- **Verify after rebase:** `cargo build` (html edition) works and still has http2/socks; `cargo build --bin tinysurfx --no-default-features --features api-only --profile bsr2` produces ~4 MB stripped binary.
+
 ### P11 — Replace actix-web with tiny_http (api-only only)
 - **Files:** `Cargo.toml` (`actix-web`/`actix-cors`/`actix-governor` made `optional = true` and added to `html-edition`; new `tiny_http` dep gated to `api-only`. `serde_json` gains `std` feature explicitly since actix is no longer pulling it in transitively).
 - **Purpose:** ~3-4 MB savings on the api-only binary (final stripped: ~5.5 MB vs ~7 MB before). tiny_http is sync; we own a multi-thread tokio runtime in `api_server::serve` and `block_on` per request to bridge to the async aggregator.

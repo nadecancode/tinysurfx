@@ -86,8 +86,11 @@ pub async fn aggregate(
             .tls_built_in_root_certs(config.operating_system_tls_certificates)
             .https_only(true)
             .gzip(true)
-            .brotli(true)
-            .http2_adaptive_window(config.adaptive_window);
+            .brotli(true);
+        #[cfg(not(feature = "api-only"))]
+        {
+            cb = cb.http2_adaptive_window(config.adaptive_window);
+        }
 
         if config.proxy.is_some() {
             cb = cb.proxy(config.proxy.clone().unwrap());
