@@ -54,6 +54,7 @@ impl SearchResult {
     /// # Arguments
     ///
     /// * query -  the query string  used to obtain the results
+    #[cfg(not(feature = "api-only"))]
     pub fn calculate_relevance(&mut self, query: &str) {
         use stop_words::{LANGUAGE, get};
         // when language settings can change to any of the ones supported on this crate: https://docs.rs/crate/stop-words/0.8.0
@@ -242,6 +243,7 @@ impl SearchResults {
 /// * `punctuation` - list of punctuation symbols.
 /// ### Returns
 /// * `score` - The average tf-idf score of the word tokens (and synonyms) in the query
+#[cfg(not(feature = "api-only"))]
 fn calculate_tf_idf(
     query: &str,
     documents: &[String],

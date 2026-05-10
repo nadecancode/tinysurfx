@@ -171,6 +171,7 @@ pub async fn aggregate(
             .par_iter()
             .cloned()
             .map(|(_, mut value)| {
+                #[cfg(not(feature = "api-only"))]
                 if !value.url.contains("temu.com") {
                     value.calculate_relevance(query.as_str())
                 }

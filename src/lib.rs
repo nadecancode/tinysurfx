@@ -7,14 +7,35 @@ mod cache;
 mod engines;
 mod handler;
 mod models;
+
+#[cfg(not(feature = "api-only"))]
 pub mod parser;
+#[cfg(not(feature = "api-only"))]
 mod routes;
+#[cfg(not(feature = "api-only"))]
 pub mod templates;
+
 mod user_agent;
 
+// api-only edition modules + the parser shim that lets aggregator.rs keep
+// `use crate::parser::Config;` byte-identical.
+#[cfg(feature = "api-only")]
+pub mod api_config;
+/// Parser shim: re-exports `api_config::Config` as `parser::Config` so that
+/// `use crate::parser::Config;` in `aggregator.rs` stays byte-identical with
+/// upstream while routing to the env-driven api-only `Config`.
+#[cfg(feature = "api-only")]
+pub mod parser {
+    pub use crate::api_config::Config;
+}
+
+#[cfg(not(feature = "api-only"))]
 use actix_cors::Cors;
+#[cfg(not(feature = "api-only"))]
 use actix_files as fs;
+#[cfg(not(feature = "api-only"))]
 use actix_governor::{Governor, GovernorConfigBuilder};
+#[cfg(not(feature = "api-only"))]
 use actix_web::{
     App, HttpServer,
     dev::Server,
@@ -22,8 +43,11 @@ use actix_web::{
     middleware::{Compress, DefaultHeaders, Logger},
     web,
 };
+#[cfg(not(feature = "api-only"))]
 use handler::{FileType, file_path};
+#[cfg(not(feature = "api-only"))]
 use parser::Config;
+#[cfg(not(feature = "api-only"))]
 use tokio::{net::TcpListener, time::Duration};
 
 /// Runs the web server on the provided TCP listener and returns a `Server` instance.
@@ -60,6 +84,7 @@ use tokio::{net::TcpListener, time::Duration};
 ///     let server = run(listener,&config).await.expect("Failed to start server");
 /// }
 /// ```
+#[cfg(not(feature = "api-only"))]
 pub async fn run(listener: TcpListener, config: &'static Config) -> tokio::io::Result<Server> {
     let public_folder_path = file_path(FileType::Theme).await?;
 
