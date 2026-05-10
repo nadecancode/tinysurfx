@@ -37,7 +37,10 @@ jobs:
             ext: ""
             apt: ""
           - asset: macos-x86_64
-            runner: macos-13
+            # Cross-compile from the M-series macos-latest runner. The macos-13
+            # Intel runner has very scarce capacity (jobs queued 15+ min). Apple's
+            # toolchain ships SDK + linker for both arches, so this just works.
+            runner: macos-latest
             target: x86_64-apple-darwin
             ext: ""
             apt: ""
