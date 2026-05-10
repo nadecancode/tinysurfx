@@ -18,11 +18,11 @@ When merging upstream (`.github/workflows/upstream-sync.yml` opens a PR weekly),
 - **Upstream conflict risk:** medium — if upstream adds a `parser::Config` field that `aggregator` reads, mirror it in `api_config::Config`.
 - **Verify after rebase:** binary boots with no `config.lua` present; `cargo test --test api_only --no-default-features --features api-only -- --test-threads=1` passes.
 
-### P3 — JSON-only API server (api_server.rs)
-- **Files:** `src/api_server.rs`, `src/lib.rs` (one new `pub mod api_server;` under cfg), `tests/api_only.rs`, `tests/index.rs` (cfg-gate to keep upstream test from compiling under api-only).
-- **Purpose:** Actix App + `/search` (JSON) and `/healthz` handlers. Integration tests in `tests/api_only.rs`.
+### P3 — JSON-only API server (api_server.rs, tiny_http)
+- **Files:** `src/api_server.rs`, `src/bin/tinysurfx.rs`, `src/lib.rs` (one new `pub mod api_server;` under cfg), `tests/api_only.rs`, `tests/index.rs` (cfg-gate to keep upstream test from compiling under api-only).
+- **Purpose:** [`tiny_http`]-based sync HTTP server (~100 KB compiled) bridging to the async aggregator via a tokio runtime. Replaces actix-web (~3-4 MB stack) for the api-only edition only — html-edition still uses actix. Routes: `GET /healthz`, `GET /search`. CORS via permissive header. No rate limiting (defer to reverse proxy if needed).
 - **Upstream conflict risk:** low — isolated new files. The `tests/index.rs` cfg-gate is one line.
-- **Verify after rebase:** `cargo test --test api_only --no-default-features --features api-only -- --test-threads=1` passes; `cargo test` (default) also passes.
+- **Verify after rebase:** `cargo test --test api_only --no-default-features --features api-only -- --test-threads=1` passes; `cargo test` (default) also passes; `./target/bsr2/tinysurfx --help` prints help.
 
 ### P4 — `build-binaries.yml` workflow
 - **Files:** `.github/workflows/build-binaries.yml`
@@ -63,6 +63,13 @@ When merging upstream (`.github/workflows/upstream-sync.yml` opens a PR weekly),
 - **Purpose:** `fake-useragent v0.1.3` (used by html-edition only since P10) transitively pulls `reqwest v0.9.24` → `native-tls` → `openssl-sys`. Vendoring lets the build script compile its own OpenSSL when system one isn't available. The api-only edition does NOT pull this — fake-useragent is gated out by P10.
 - **Upstream conflict risk:** low — single Cargo.toml line.
 - **Verify after rebase:** `cargo build` (html edition) still succeeds; `cargo build --bin tinysurfx --no-default-features --features api-only` does NOT pull openssl-sys (`cargo tree --no-default-features --features api-only -i openssl-sys` returns nothing).
+
+### P11 — Replace actix-web with tiny_http (api-only only)
+- **Files:** `Cargo.toml` (`actix-web`/`actix-cors`/`actix-governor` made `optional = true` and added to `html-edition`; new `tiny_http` dep gated to `api-only`. `serde_json` gains `std` feature explicitly since actix is no longer pulling it in transitively).
+- **Purpose:** ~3-4 MB savings on the api-only binary (final stripped: ~5.5 MB vs ~7 MB before). tiny_http is sync; we own a multi-thread tokio runtime in `api_server::serve` and `block_on` per request to bridge to the async aggregator.
+- **Lost middleware (acceptable for embedding use case):** rate limiting (use a reverse proxy), HTTP/2, brotli compression, structured access logs.
+- **Upstream conflict risk:** low — actix deps stay intact for html-edition; the swap is feature-gated.
+- **Verify after rebase:** `cargo build --bin tinysurfx --no-default-features --features api-only` succeeds; `cargo build --bin websurfx` (html edition) succeeds.
 
 ### P10 — Vendored static UA list (drops fake-useragent from api-only)
 - **Files:** `src/user_agent.rs` (cfg-gate the existing impl behind `not(api-only)`, add new impl with hardcoded UA list under `api-only`); `Cargo.toml` (`fake-useragent` becomes `optional = true`, gated to `html-edition`)

@@ -34,7 +34,7 @@ tokio = { version = "1.47.1", features = [
     "io-util",
 ], default-features = false }
 serde = { version = "1.0.215", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.145", default-features = false }
+serde_json = { version = "1.0.145", default-features = false, features = ["std"] }
 postcard = {version = "1.1.3", default-features = false, features = [
     "use-std",
 ] }
@@ -46,9 +46,11 @@ actix-web = { version = "4.11.0", features = [
     "cookies",
     "macros",
     "compress-brotli",
-], default-features = false }
+], default-features = false, optional = true }
 actix-files = { version = "0.6.10", default-features = false, optional = true }
-actix-cors = { version = "0.7.0", default-features = false }
+actix-cors = { version = "0.7.0", default-features = false, optional = true }
+# api-only edition: tiny sync HTTP server (~100KB) instead of actix-web stack.
+tiny_http = { version = "0.12", default-features = false, optional = true }
 fake-useragent = { version = "0.1.3", default-features = false, optional = true }
 env_logger = { version = "0.11.6", default-features = false }
 log = { version = "0.4.21", default-features = false }
@@ -71,7 +73,7 @@ regex = { version = "1.12.3", features = ["perf", "std"], default-features = fal
 futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
 dhat = { version = "0.3.2", optional = true, default-features = false }
 mimalloc = { version = "0.1.43", default-features = false }
-actix-governor = { version = "0.10.0", default-features = false }
+actix-governor = { version = "0.10.0", default-features = false, optional = true }
 moka = { version = "0.12.13", optional = true, default-features = false, features = [
     "future",
 ] }
@@ -209,13 +211,16 @@ opt-level = "z"
 default = ["html-edition"]
 
 # The api-only edition: smallest possible binary, JSON API only.
-api-only = []
+api-only = ["dep:tiny_http"]
 
 # The original websurfx HTML edition. Default. Pulls every UI dep.
 html-edition = [
     "memory-cache",
     "dep:maud",
+    "dep:actix-web",
     "dep:actix-files",
+    "dep:actix-cors",
+    "dep:actix-governor",
     "dep:actix-multipart",
     "dep:mlua",
     "dep:keyword_extraction",

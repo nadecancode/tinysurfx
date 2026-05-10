@@ -3,7 +3,6 @@
 #![cfg(feature = "api-only")]
 #![allow(unsafe_code)]
 
-use actix_web::{App, http::StatusCode, test as actix_test, web};
 use serde_json::Value;
 use websurfx::api_config::{Config, ConfigError};
 use websurfx::api_server;
@@ -140,81 +139,82 @@ fn rejects_empty_engines() {
     assert!(matches!(Config::from_env_and_args(&[]), Err(ConfigError::InvalidValue(_))));
 }
 
-#[actix_web::test]
+// HTTP-route tests now call `api_server::route` directly (pure async fn) —
+// no port binding, no HTTP client, no actix harness. The server-loop
+// integration is exercised by the binary smoke test in CI.
+
+#[tokio::test]
 async fn healthz_returns_ok_json() {
     let cfg = leak_config();
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(cfg)).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/healthz").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body: Value = actix_test::read_body_json(resp).await;
+    let (status, body) = api_server::route("GET", "/healthz", "", cfg).await;
+    assert_eq!(status, 200);
     assert_eq!(body["status"], "ok");
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
 }
 
-#[actix_web::test]
+#[tokio::test]
+async fn unknown_path_returns_404() {
+    let cfg = leak_config();
+    let (status, body) = api_server::route("GET", "/nope", "", cfg).await;
+    assert_eq!(status, 404);
+    assert_eq!(body["code"], "not_found");
+}
+
+#[tokio::test]
 async fn search_missing_q_returns_400() {
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/search").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let body: Value = actix_test::read_body_json(resp).await;
+    let cfg = leak_config();
+    let (status, body) = api_server::route("GET", "/search", "", cfg).await;
+    assert_eq!(status, 400);
     assert_eq!(body["code"], "empty_query");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn search_empty_q_returns_400() {
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/search?q=").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let body: Value = actix_test::read_body_json(resp).await;
+    let cfg = leak_config();
+    let (status, body) = api_server::route("GET", "/search", "q=", cfg).await;
+    assert_eq!(status, 400);
     assert_eq!(body["code"], "empty_query");
 }
 
-#[actix_web::test]
+#[tokio::test]
+async fn search_whitespace_q_returns_400() {
+    let cfg = leak_config();
+    let (status, body) = api_server::route("GET", "/search", "q=%20%20", cfg).await;
+    assert_eq!(status, 400);
+    assert_eq!(body["code"], "empty_query");
+}
+
+#[tokio::test]
 async fn search_safesearch_3_returns_400() {
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/search?q=hello&safesearch=3").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let body: Value = actix_test::read_body_json(resp).await;
+    let cfg = leak_config();
+    let (status, body) = api_server::route("GET", "/search", "q=hello&safesearch=3", cfg).await;
+    assert_eq!(status, 400);
     assert_eq!(body["code"], "bad_request");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn search_bad_page_returns_400() {
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/search?q=hi&page=notanumber").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let body: Value = actix_test::read_body_json(resp).await;
+    let cfg = leak_config();
+    let (status, body) =
+        api_server::route("GET", "/search", "q=hi&page=notanumber", cfg).await;
+    assert_eq!(status, 400);
     assert_eq!(body["code"], "bad_request");
 }
 
-/// Hits real DuckDuckGo. Run with: `cargo test --test api_only --no-default-features --features api-only --ignored -- --test-threads=1`
+/// Hits real DuckDuckGo. Run with:
+/// `cargo test --test api_only --no-default-features --features api-only --ignored -- --test-threads=1`
 #[ignore]
-#[actix_web::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn search_returns_results_from_duckduckgo() {
-    let app = actix_test::init_service(
-        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
-    ).await;
-    let req = actix_test::TestRequest::get().uri("/search?q=rust+programming+language").to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body: Value = actix_test::read_body_json(resp).await;
-    assert!(body["results"].as_array().unwrap().len() > 0,
-        "expected non-empty results, got {body}");
+    let cfg = leak_config();
+    let (status, body) =
+        api_server::route("GET", "/search", "q=rust+programming+language", cfg).await;
+    assert_eq!(status, 200);
+    let results = body["results"].as_array().expect("results array");
+    assert!(
+        !results.is_empty(),
+        "expected non-empty results, got {body}"
+    );
 }
 
 fn leak_config() -> &'static Config {
