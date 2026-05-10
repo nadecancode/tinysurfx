@@ -106,7 +106,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0   # need full tag history for the patch bump
+          fetch-depth: 0   # need full history for tag walk
+          fetch-tags: true # actions/checkout@v6 doesn't fetch tags by default
 
       - name: Compute release tag
         id: compute
