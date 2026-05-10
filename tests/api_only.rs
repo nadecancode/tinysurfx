@@ -3,7 +3,7 @@
 #![cfg(feature = "api-only")]
 #![allow(unsafe_code)]
 
-use websurfx::api_config::Config;
+use websurfx::api_config::{Config, ConfigError};
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -65,6 +65,34 @@ fn from_env_reads_numeric_fields() {
     assert_eq!(cfg.threads, 8);
     assert_eq!(cfg.request_timeout, 45);
     assert_eq!(cfg.rate_limiter.number_of_requests, 100);
+}
+
+#[test]
+fn cli_flag_overrides_env() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_BIND", "127.0.0.1:7000");
+    let args = vec!["--bind".to_string(), "0.0.0.0:9999".to_string()];
+    let cfg = Config::from_env_and_args(&args).expect("ok");
+    assert_eq!(cfg.binding_ip, "0.0.0.0");
+    assert_eq!(cfg.port, 9999);
+}
+
+#[test]
+fn cli_engines_replaces_env() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_ENGINES", "duckduckgo");
+    let args = vec!["--engines".to_string(), "brave,searx".to_string()];
+    let cfg = Config::from_env_and_args(&args).expect("ok");
+    assert_eq!(cfg.upstream_search_engines.len(), 2);
+    assert!(cfg.upstream_search_engines.contains_key("searx"));
+}
+
+#[test]
+fn cli_help_returns_help_request() {
+    let _lock = env_lock();
+    let args = vec!["--help".to_string()];
+    let err = Config::from_env_and_args(&args);
+    assert!(matches!(err, Err(ConfigError::HelpRequested)));
 }
 
 // --- Helpers ---

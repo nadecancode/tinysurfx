@@ -80,6 +80,10 @@ pub enum ConfigError {
     BadBool(String, String),
     /// `TINYSURFX_PROXY` was not a valid proxy URL.
     BadProxy(String),
+    /// An unknown CLI flag was supplied or required value was missing.
+    BadFlag(String),
+    /// User passed `--help` / `-h`. Caller should print help and exit 0.
+    HelpRequested,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -89,6 +93,8 @@ impl std::fmt::Display for ConfigError {
             Self::BadInt(k, s) => write!(f, "{k} must be an integer, got {s:?}"),
             Self::BadBool(k, s) => write!(f, "{k} must be true|false, got {s:?}"),
             Self::BadProxy(s) => write!(f, "TINYSURFX_PROXY is not a valid URL: {s}"),
+            Self::BadFlag(s) => write!(f, "{s}"),
+            Self::HelpRequested => write!(f, "help requested"),
         }
     }
 }
@@ -154,4 +160,61 @@ fn parse_env_bool(key: &str, default: bool) -> Result<bool, ConfigError> {
         },
         Err(_) => Ok(default),
     }
+}
+
+/// Help text rendered by `--help`. Embedded at compile time.
+const HELP_TEXT: &str = include_str!("api_config_help.txt");
+
+impl Config {
+    /// Build a `Config` from env vars then apply CLI overrides on top.
+    /// Returns `ConfigError::HelpRequested` if the user passed `--help` / `-h` —
+    /// the caller is expected to print `help_text()` and exit 0.
+    pub fn from_env_and_args(args: &[String]) -> Result<Self, ConfigError> {
+        let mut cfg = Self::from_env()?;
+        let mut iter = args.iter();
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "--help" | "-h" => return Err(ConfigError::HelpRequested),
+                "--version" | "-V" => {
+                    println!("tinysurfx {}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
+                "--bind" => {
+                    let v = iter.next().ok_or_else(|| ConfigError::BadFlag("--bind needs value".into()))?;
+                    let (h, p) = v.rsplit_once(':').ok_or_else(|| ConfigError::BadBind(v.clone()))?;
+                    let h = h.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(h);
+                    cfg.binding_ip = h.to_string();
+                    cfg.port = p.parse().map_err(|_| ConfigError::BadBind(v.clone()))?;
+                }
+                "--threads" => cfg.threads = take_int(&mut iter, "--threads")?,
+                "--request-timeout" => cfg.request_timeout = take_int(&mut iter, "--request-timeout")?,
+                "--rate-limit-rps" => cfg.rate_limiter.number_of_requests = take_int(&mut iter, "--rate-limit-rps")?,
+                "--rate-limit-window" => cfg.rate_limiter.time_limit = take_int(&mut iter, "--rate-limit-window")?,
+                "--safe-search" => cfg.safe_search = take_int(&mut iter, "--safe-search")?,
+                "--engines" => {
+                    let v = iter.next().ok_or_else(|| ConfigError::BadFlag("--engines needs value".into()))?;
+                    cfg.upstream_search_engines.clear();
+                    for name in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                        cfg.upstream_search_engines.insert(name.to_lowercase(), true);
+                    }
+                }
+                "--proxy" => {
+                    let v = iter.next().ok_or_else(|| ConfigError::BadFlag("--proxy needs value".into()))?;
+                    cfg.proxy = Some(reqwest::Proxy::all(v).map_err(|_| ConfigError::BadProxy(v.clone()))?);
+                }
+                other => return Err(ConfigError::BadFlag(format!("unknown flag {other:?}"))),
+            }
+        }
+        Ok(cfg)
+    }
+
+    /// Help text printed by the bin in response to `--help` / `-h`.
+    pub fn help_text() -> &'static str { HELP_TEXT }
+}
+
+/// Consume the next CLI arg as an integer, returning `BadFlag` if missing or `BadInt` if unparseable.
+fn take_int<'a, I, T>(iter: &mut I, name: &str) -> Result<T, ConfigError>
+where I: Iterator<Item = &'a String>, T: FromStr {
+    let v = iter.next().ok_or_else(|| ConfigError::BadFlag(format!("{name} needs value")))?;
+    v.parse().map_err(|_| ConfigError::BadInt(name.to_string(), v.clone()))
 }

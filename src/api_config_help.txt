@@ -1,0 +1,29 @@
+tinysurfx — JSON-only meta-search API server.
+
+USAGE:
+    tinysurfx [FLAGS]
+
+FLAGS (override env vars; CLI > env > default):
+    --bind <HOST:PORT>            (TINYSURFX_BIND)            default 127.0.0.1:8080
+    --threads <N>                 (TINYSURFX_THREADS)         default 4
+    --request-timeout <SECS>      (TINYSURFX_REQUEST_TIMEOUT_SECS)  default 30
+    --rate-limit-rps <N>          (TINYSURFX_RATE_LIMIT_RPS)  default 20
+    --rate-limit-window <SECS>    (TINYSURFX_RATE_LIMIT_WINDOW_SECS)  default 3
+    --safe-search <0..2>          (TINYSURFX_SAFE_SEARCH)     default 2
+    --engines <CSV>               (TINYSURFX_ENGINES)         default duckduckgo
+    --proxy <URL>                 (TINYSURFX_PROXY)           default unset
+    --help, -h                    Print this help and exit
+    --version, -V                 Print version and exit
+
+ENV-ONLY (no CLI counterpart):
+    TINYSURFX_LOG                 env_logger spec, default "info"
+    TINYSURFX_OS_TLS_CERTS        true|false, default true
+    TINYSURFX_ADAPTIVE_WINDOW     true|false, default true
+    TINYSURFX_CLIENT_KEEPALIVE_SECS  default 120
+    TINYSURFX_TCP_KEEPALIVE_SECS  default 30
+    TINYSURFX_POOL_IDLE_TIMEOUT_SECS  default 30
+    TINYSURFX_HTTPS_CONNECTIONS   default 10
+
+ENDPOINTS:
+    GET /search?q=<QUERY>&page=<N>&safesearch=<0..2>
+    GET /healthz
