@@ -21,6 +21,8 @@ mod user_agent;
 // `use crate::parser::Config;` byte-identical.
 #[cfg(feature = "api-only")]
 pub mod api_config;
+#[cfg(feature = "api-only")]
+pub mod api_server;
 /// Parser shim: re-exports `api_config::Config` as `parser::Config` so that
 /// `use crate::parser::Config;` in `aggregator.rs` stays byte-identical with
 /// upstream while routing to the env-driven api-only `Config`.

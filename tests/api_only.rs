@@ -3,7 +3,10 @@
 #![cfg(feature = "api-only")]
 #![allow(unsafe_code)]
 
+use actix_web::{App, http::StatusCode, test as actix_test, web};
+use serde_json::Value;
 use websurfx::api_config::{Config, ConfigError};
+use websurfx::api_server;
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -135,6 +138,27 @@ fn rejects_empty_engines() {
     let _lock = env_lock();
     let _g = EnvGuard::set("TINYSURFX_ENGINES", "");
     assert!(matches!(Config::from_env_and_args(&[]), Err(ConfigError::InvalidValue(_))));
+}
+
+#[actix_web::test]
+async fn healthz_returns_ok_json() {
+    let cfg = leak_config();
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(cfg)).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/healthz").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+}
+
+fn leak_config() -> &'static Config {
+    let _lock = env_lock();
+    let _g = EnvGuard::clear_tinysurfx();
+    let cfg = Config::from_env_and_args(&[]).expect("ok");
+    Box::leak(Box::new(cfg))
 }
 
 // --- Helpers ---
