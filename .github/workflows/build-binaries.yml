@@ -94,16 +94,52 @@ jobs:
 
   publish:
     name: Publish release assets
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Publish on tag pushes AND on every push to `rolling` (auto-tag-and-bump).
+    # PRs to `rolling` go through release.yml's separate flow.
+    if: |
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/rolling')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
-      - uses: softprops/action-gh-release@v3
+      - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          fetch-depth: 0   # need full tag history for the patch bump
+
+      - name: Compute release tag
+        id: compute
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Tag push: use the pushed tag verbatim.
+            TAG="${{ github.ref_name }}"
+          else
+            # Push to rolling: reuse a tag already at HEAD if one exists
+            # (e.g. release.yml just tagged this commit), otherwise bump the
+            # patch version from the latest v*.*.* tag.
+            EXISTING=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+            if [ -n "$EXISTING" ]; then
+              TAG="$EXISTING"
+              echo "Reusing existing tag at HEAD: $TAG"
+            else
+              LAST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || echo "v1.29.0")
+              IFS='.' read -r MAJ MIN PATCH <<< "${LAST#v}"
+              TAG="v${MAJ}.${MIN}.$((PATCH+1))"
+              echo "Bumping from $LAST to $TAG"
+            fi
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v8
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.compute.outputs.tag }}
+          name: ${{ steps.compute.outputs.tag }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             tinysurfx-*/tinysurfx-*
