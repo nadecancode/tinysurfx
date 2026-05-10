@@ -57,3 +57,9 @@ When merging upstream (`.github/workflows/upstream-sync.yml` opens a PR weekly),
 - **Purpose:** Under html-edition, `keyword_extraction` transitively activates `regex/std`, which `aggregator.rs:214` depends on (`?` conversion of `regex::Error` requires `std::error::Error`). Under api-only that transitive activation disappears, so we activate `std` explicitly to keep `aggregator.rs` compiling.
 - **Upstream conflict risk:** low — single feature list addition.
 - **Verify after rebase:** both build modes succeed.
+
+### P9 — Force-vendor OpenSSL (transitive via fake-useragent)
+- **Files:** `Cargo.toml` (direct `openssl-sys` dep with `vendored` feature)
+- **Purpose:** `fake-useragent v0.1.3` transitively pulls `reqwest v0.9.24` (2019) which uses `native-tls` → `openssl-sys`. Static musl Linux builds in CI cannot find system OpenSSL; vendoring lets the openssl-sys build script compile its own copy. Affects all builds; modest binary size cost.
+- **Upstream conflict risk:** low — single Cargo.toml addition.
+- **Verify after rebase:** `cargo build --bin tinysurfx --no-default-features --features api-only --target x86_64-unknown-linux-musl` succeeds in CI; `cargo build` (html edition) still succeeds.

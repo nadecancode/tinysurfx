@@ -100,6 +100,10 @@ actix-multipart = { version = "0.7.2", default-features = false, features = [
     "derive",
     "tempfile",
 ], optional = true }
+# Forced direct dep so we can opt fake-useragent's transitive reqwest 0.9 into
+# vendored OpenSSL — required for static musl Linux builds. Adds modest binary
+# size to all builds (vendored copy gets compiled regardless of edition).
+openssl-sys = { version = "0.9", features = ["vendored"] }
 
 [dev-dependencies]
 rusty-hook = { version = "^0.11.2", default-features = false }
