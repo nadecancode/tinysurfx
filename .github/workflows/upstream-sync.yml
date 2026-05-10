@@ -17,7 +17,7 @@ jobs:
         with:
           ref: rolling
           fetch-depth: 0
-          token: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          # Default GITHUB_TOKEN; permissions block above grants what we need.
 
       - name: Configure git
         run: |
@@ -63,7 +63,7 @@ jobs:
       - name: Ensure upstream-sync label exists
         if: steps.branch.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh label create upstream-sync \
             --description "Automated PR merging upstream/rolling" \
@@ -73,7 +73,7 @@ jobs:
       - name: Push and open PR
         if: steps.branch.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           CONFLICTS: ${{ steps.merge.outputs.conflicts }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
