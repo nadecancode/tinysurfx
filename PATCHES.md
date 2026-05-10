@@ -58,8 +58,19 @@ When merging upstream (`.github/workflows/upstream-sync.yml` opens a PR weekly),
 - **Upstream conflict risk:** low — single feature list addition.
 - **Verify after rebase:** both build modes succeed.
 
-### P9 — Force-vendor OpenSSL (transitive via fake-useragent)
-- **Files:** `Cargo.toml` (direct `openssl-sys` dep with `vendored` feature)
-- **Purpose:** `fake-useragent v0.1.3` transitively pulls `reqwest v0.9.24` (2019) which uses `native-tls` → `openssl-sys`. Static musl Linux builds in CI cannot find system OpenSSL; vendoring lets the openssl-sys build script compile its own copy. Affects all builds; modest binary size cost.
-- **Upstream conflict risk:** low — single Cargo.toml addition.
-- **Verify after rebase:** `cargo build --bin tinysurfx --no-default-features --features api-only --target x86_64-unknown-linux-musl` succeeds in CI; `cargo build` (html edition) still succeeds.
+### P9 — Vendored OpenSSL (html-edition only, optional)
+- **Files:** `Cargo.toml` (direct `openssl-sys` dep with `vendored` feature, gated `optional = true` and added to `html-edition`)
+- **Purpose:** `fake-useragent v0.1.3` (used by html-edition only since P10) transitively pulls `reqwest v0.9.24` → `native-tls` → `openssl-sys`. Vendoring lets the build script compile its own OpenSSL when system one isn't available. The api-only edition does NOT pull this — fake-useragent is gated out by P10.
+- **Upstream conflict risk:** low — single Cargo.toml line.
+- **Verify after rebase:** `cargo build` (html edition) still succeeds; `cargo build --bin tinysurfx --no-default-features --features api-only` does NOT pull openssl-sys (`cargo tree --no-default-features --features api-only -i openssl-sys` returns nothing).
+
+### P10 — Vendored static UA list (drops fake-useragent from api-only)
+- **Files:** `src/user_agent.rs` (cfg-gate the existing impl behind `not(api-only)`, add new impl with hardcoded UA list under `api-only`); `Cargo.toml` (`fake-useragent` becomes `optional = true`, gated to `html-edition`)
+- **Purpose:** `fake-useragent` and its transitive `reqwest 0.9 → native-tls → openssl-sys` chain account for ~5 MB of the api-only binary plus a runtime scrape of useragentstring.com and a `/tmp` cache write. The api-only edition vendors a curated list of ~21 desktop browser UAs (Chrome/Firefox/Safari/Edge across Win/Mac/Linux) and picks one per request via system-clock entropy. Concept lifted from https://github.com/aurexav/fake-useragent — implementation only, not the package.
+- **Upstream conflict risk:** medium — touches `src/user_agent.rs`, an actively-evolving file. Cfg-gate keeps upstream impl byte-identical; new impl is pure addition.
+- **Maintenance:** refresh the UA list roughly yearly so strings stay plausible to upstream search engines.
+- **Verify after rebase:**
+  - `cargo build` (html edition) still succeeds and pulls fake-useragent.
+  - `cargo build --bin tinysurfx --no-default-features --features api-only` succeeds.
+  - `cargo tree --no-default-features --features api-only -i fake-useragent` returns nothing.
+  - `cargo test --test api_only --no-default-features --features api-only -- --test-threads=1` still passes.
