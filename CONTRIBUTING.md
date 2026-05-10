@@ -65,6 +65,8 @@ git remote add upstream https://github.com/neon-mmd/websurfx.git
 git fetch upstream
 ```
 
+**Repo admin step:** for the `upstream-sync.yml` workflow to open PRs automatically, the repo setting *Settings → Actions → General → Workflow permissions* must have **"Allow GitHub Actions to create and approve pull requests"** checked. Without it, the workflow will push the merged branch successfully but fail at `gh pr create` with `Resource not accessible by integration`.
+
 ### Pulling upstream changes
 
 A scheduled GitHub Action (`.github/workflows/upstream-sync.yml`) runs weekly and opens a PR titled `chore: merge upstream/rolling`. To run it manually:
