@@ -1,5 +1,7 @@
 //! This module provides the tests for each page whether they work as intended or not.
 
+#![cfg(not(feature = "api-only"))]
+
 use tokio::{net::TcpListener, sync::OnceCell};
 use websurfx::{parser::Config, run, templates::views};
 
