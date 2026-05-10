@@ -65,3 +65,91 @@ impl Config {
         }
     }
 }
+
+use std::env;
+use std::str::FromStr;
+
+/// Errors that can occur while parsing env vars or CLI flags.
+#[derive(Debug)]
+pub enum ConfigError {
+    /// `TINYSURFX_BIND` was not in `host:port` form.
+    BadBind(String),
+    /// An integer-valued env var or flag did not parse.
+    BadInt(String, String),
+    /// A boolean-valued env var or flag did not parse.
+    BadBool(String, String),
+    /// `TINYSURFX_PROXY` was not a valid proxy URL.
+    BadProxy(String),
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadBind(s) => write!(f, "TINYSURFX_BIND must be `host:port`, got {s:?}"),
+            Self::BadInt(k, s) => write!(f, "{k} must be an integer, got {s:?}"),
+            Self::BadBool(k, s) => write!(f, "{k} must be true|false, got {s:?}"),
+            Self::BadProxy(s) => write!(f, "TINYSURFX_PROXY is not a valid URL: {s}"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl Config {
+    /// Build a `Config` from environment variables, falling back to `defaults()`
+    /// for any unset var. Validates types but does not yet validate value
+    /// ranges (Task 4).
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let mut cfg = Self::defaults();
+
+        if let Ok(bind) = env::var("TINYSURFX_BIND") {
+            let (host, port) = bind.rsplit_once(':').ok_or_else(|| ConfigError::BadBind(bind.clone()))?;
+            cfg.binding_ip = host.to_string();
+            cfg.port = port.parse().map_err(|_| ConfigError::BadBind(bind.clone()))?;
+        }
+        cfg.threads = parse_env_int("TINYSURFX_THREADS", cfg.threads)?;
+        cfg.request_timeout = parse_env_int("TINYSURFX_REQUEST_TIMEOUT_SECS", cfg.request_timeout)?;
+        cfg.tcp_connection_keep_alive = parse_env_int("TINYSURFX_TCP_KEEPALIVE_SECS", cfg.tcp_connection_keep_alive)?;
+        cfg.pool_idle_connection_timeout = parse_env_int("TINYSURFX_POOL_IDLE_TIMEOUT_SECS", cfg.pool_idle_connection_timeout)?;
+        cfg.number_of_https_connections = parse_env_int("TINYSURFX_HTTPS_CONNECTIONS", cfg.number_of_https_connections)?;
+        cfg.operating_system_tls_certificates = parse_env_bool("TINYSURFX_OS_TLS_CERTS", cfg.operating_system_tls_certificates)?;
+        cfg.adaptive_window = parse_env_bool("TINYSURFX_ADAPTIVE_WINDOW", cfg.adaptive_window)?;
+        cfg.safe_search = parse_env_int("TINYSURFX_SAFE_SEARCH", cfg.safe_search)?;
+        cfg.client_connection_keep_alive = parse_env_int("TINYSURFX_CLIENT_KEEPALIVE_SECS", cfg.client_connection_keep_alive)?;
+        cfg.rate_limiter.number_of_requests = parse_env_int("TINYSURFX_RATE_LIMIT_RPS", cfg.rate_limiter.number_of_requests)?;
+        cfg.rate_limiter.time_limit = parse_env_int("TINYSURFX_RATE_LIMIT_WINDOW_SECS", cfg.rate_limiter.time_limit)?;
+
+        if let Ok(engines) = env::var("TINYSURFX_ENGINES") {
+            cfg.upstream_search_engines.clear();
+            for name in engines.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                cfg.upstream_search_engines.insert(name.to_lowercase(), true);
+            }
+        }
+
+        if let Ok(proxy_url) = env::var("TINYSURFX_PROXY") {
+            cfg.proxy = Some(reqwest::Proxy::all(&proxy_url).map_err(|_| ConfigError::BadProxy(proxy_url))?);
+        }
+
+        Ok(cfg)
+    }
+}
+
+/// Parse an integer-typed env var, returning the default if unset.
+fn parse_env_int<T: FromStr>(key: &str, default: T) -> Result<T, ConfigError> {
+    match env::var(key) {
+        Ok(s) => s.parse().map_err(|_| ConfigError::BadInt(key.to_string(), s)),
+        Err(_) => Ok(default),
+    }
+}
+
+/// Parse a bool-typed env var (true|1|yes|on / false|0|no|off), returning the default if unset.
+fn parse_env_bool(key: &str, default: bool) -> Result<bool, ConfigError> {
+    match env::var(key) {
+        Ok(s) => match s.to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(true),
+            "false" | "0" | "no" | "off" => Ok(false),
+            _ => Err(ConfigError::BadBool(key.to_string(), s)),
+        },
+        Err(_) => Ok(default),
+    }
+}
