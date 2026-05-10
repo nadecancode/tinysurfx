@@ -1,0 +1,113 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Mondays 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: rolling
+          fetch-depth: 0
+          token: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "tinysurfx-bot"
+          git config user.email "tinysurfx-bot@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/neon-mmd/websurfx.git
+          git fetch upstream rolling
+
+      - name: Create sync branch
+        id: branch
+        run: |
+          BRANCH="upstream-sync/$(date -u +%Y-%m-%d)"
+          if git ls-remote --exit-code --heads origin "$BRANCH"; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream/rolling
+        if: steps.branch.outputs.skip != 'true'
+        id: merge
+        run: |
+          set +e
+          git merge upstream/rolling --no-ff --no-edit
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            CONFLICTS=$(git diff --name-only --diff-filter=U)
+            git add -A
+            git commit --no-verify -m "chore: merge upstream/rolling (conflicts pending resolution)"
+            {
+              echo "conflicts<<__CONFLICTS_EOF__"
+              echo "$CONFLICTS"
+              echo "__CONFLICTS_EOF__"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure upstream-sync label exists
+        if: steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+        run: |
+          gh label create upstream-sync \
+            --description "Automated PR merging upstream/rolling" \
+            --color "0e8a16" \
+            --force >/dev/null 2>&1 || true
+
+      - name: Push and open PR
+        if: steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          git push origin "$BRANCH"
+
+          BODY=$(cat <<'EOM'
+          Automated weekly sync from `upstream/rolling`.
+
+          ## Per-patch verification checklist (from PATCHES.md)
+          - [ ] **P1** — `cargo build --bin tinysurfx --no-default-features --features api-only` succeeds
+          - [ ] **P1** — `cargo build` (default features) still succeeds
+          - [ ] **P2** — `cargo test --test api_only --no-default-features --features api-only -- --test-threads=1` passes
+          - [ ] **P3** — integration tests still pass
+          - [ ] **P4** — `build-binaries.yml` workflow runs green for this branch
+          - [ ] **P5** — N/A (workflow file)
+          - [ ] **P6 (HIGH RISK)** — confirm `value.calculate_relevance` cfg gate still applies; confirm `models/aggregation.rs` cfg gates still apply
+          - [ ] **P7** — `unsafe_code = "deny"` lint policy preserved
+          - [ ] **P8** — `regex` `std` feature still active
+          - [ ] **P9** — `openssl-sys` vendored dep still in Cargo.toml
+          EOM
+          )
+
+          if [ -n "$CONFLICTS" ]; then
+            BODY="$BODY
+
+          ## Conflicts to resolve
+          \`\`\`
+          $CONFLICTS
+          \`\`\`"
+          fi
+
+          gh pr create \
+            --base rolling \
+            --head "$BRANCH" \
+            --title "chore: merge upstream/rolling" \
+            --body "$BODY" \
+            --label upstream-sync
