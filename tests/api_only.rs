@@ -154,6 +154,54 @@ async fn healthz_returns_ok_json() {
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
 }
 
+#[actix_web::test]
+async fn search_missing_q_returns_400() {
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/search").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "empty_query");
+}
+
+#[actix_web::test]
+async fn search_empty_q_returns_400() {
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/search?q=").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "empty_query");
+}
+
+#[actix_web::test]
+async fn search_safesearch_3_returns_400() {
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/search?q=hello&safesearch=3").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+}
+
+#[actix_web::test]
+async fn search_bad_page_returns_400() {
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/search?q=hi&page=notanumber").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert_eq!(body["code"], "bad_request");
+}
+
 fn leak_config() -> &'static Config {
     let _lock = env_lock();
     let _g = EnvGuard::clear_tinysurfx();
