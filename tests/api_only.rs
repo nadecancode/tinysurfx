@@ -202,6 +202,21 @@ async fn search_bad_page_returns_400() {
     assert_eq!(body["code"], "bad_request");
 }
 
+/// Hits real DuckDuckGo. Run with: `cargo test --test api_only --no-default-features --features api-only --ignored -- --test-threads=1`
+#[ignore]
+#[actix_web::test]
+async fn search_returns_results_from_duckduckgo() {
+    let app = actix_test::init_service(
+        App::new().app_data(web::Data::new(leak_config())).configure(api_server::configure)
+    ).await;
+    let req = actix_test::TestRequest::get().uri("/search?q=rust+programming+language").to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = actix_test::read_body_json(resp).await;
+    assert!(body["results"].as_array().unwrap().len() > 0,
+        "expected non-empty results, got {body}");
+}
+
 fn leak_config() -> &'static Config {
     let _lock = env_lock();
     let _g = EnvGuard::clear_tinysurfx();

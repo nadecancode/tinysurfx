@@ -35,7 +35,8 @@ struct SearchQuery {
     safesearch: Option<u8>,
 }
 
-/// JSON search endpoint. Validates inputs; aggregator wiring lands in Task 7.
+/// JSON search endpoint. Validates inputs and dispatches to the aggregator,
+/// returning the upstream `SearchResults` as JSON.
 #[get("/search")]
 async fn search(req: HttpRequest, config: web::Data<&'static Config>) -> HttpResponse {
     let parsed = web::Query::<SearchQuery>::from_query(req.query_string());
@@ -44,8 +45,8 @@ async fn search(req: HttpRequest, config: web::Data<&'static Config>) -> HttpRes
         Err(e) => return bad_request(&e.to_string()),
     };
 
-    let q = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let _q = match q {
+    let trimmed = params.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let q = match trimmed {
         Some(s) => s.to_string(),
         None => return HttpResponse::BadRequest().json(json!({
             "error": "missing query",
@@ -58,12 +59,46 @@ async fn search(req: HttpRequest, config: web::Data<&'static Config>) -> HttpRes
         return bad_request("safesearch level not supported in api-only edition (allowed: 0..=2)");
     }
 
-    let _page = params.page.unwrap_or(0);
-    // Aggregator wiring lands in Task 7.
-    HttpResponse::NotImplemented().json(json!({
-        "error": "search not yet wired",
-        "code": "not_implemented",
-    }))
+    let page = params.page.unwrap_or(0);
+
+    use crate::aggregator::aggregate;
+    use crate::models::engine::EngineHandler;
+    use crate::user_agent::random_user_agent;
+
+    let engines: Vec<EngineHandler> = config.upstream_search_engines.iter()
+        .filter(|(_, enabled)| **enabled)
+        .filter_map(|(name, _)| EngineHandler::new(name).ok())
+        .collect();
+
+    if engines.is_empty() {
+        return HttpResponse::InternalServerError().json(json!({
+            "error": "no engines available",
+            "code": "no_engines",
+        }));
+    }
+
+    // random_user_agent is `async fn (u8) -> Result<&'static str, _>` — see src/user_agent.rs.
+    let user_agent = match random_user_agent(config.threads).await {
+        Ok(ua) => ua,
+        Err(e) => {
+            log::warn!("user_agent init error: {e}");
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "user agent init failed",
+                "code": "internal",
+            }));
+        }
+    };
+
+    match aggregate(&q, page, *config.get_ref(), &engines, safe_search, user_agent).await {
+        Ok(results) => HttpResponse::Ok().json(results),
+        Err(e) => {
+            log::warn!("aggregator error: {e}");
+            HttpResponse::BadGateway().json(json!({
+                "error": "all engines failed",
+                "code": "upstream_failed",
+            }))
+        }
+    }
 }
 
 /// Helper for emitting a structured `bad_request` JSON response.
