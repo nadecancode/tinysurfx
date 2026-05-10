@@ -1,0 +1,102 @@
+name: Build api-only binaries
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: build-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # required for tag-triggered Release publish
+
+jobs:
+  build:
+    name: ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            ext: ""
+            apt: musl-tools
+          - asset: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            ext: ""
+            apt: musl-tools
+          - asset: macos-aarch64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+            apt: ""
+          - asset: macos-x86_64
+            runner: macos-13
+            target: x86_64-apple-darwin
+            ext: ""
+            apt: ""
+          - asset: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            apt: ""
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install musl-tools
+        if: matrix.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --bin tinysurfx --no-default-features --features api-only --profile bsr2 --target ${{ matrix.target }}
+
+      - name: Strip (unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/bsr2/tinysurfx${{ matrix.ext }} || true
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          NAME="tinysurfx-${{ matrix.asset }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/bsr2/tinysurfx${{ matrix.ext }}" "dist/$NAME"
+          (cd dist && shasum -a 256 "$NAME" > "$NAME.sha256")
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tinysurfx-${{ matrix.asset }}
+          path: dist/*
+          retention-days: 14
+
+  publish:
+    name: Publish release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+      - uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.ADMIN_RIGHTS_TOKEN }}
+          generate_release_notes: true
+          files: |
+            tinysurfx-*/tinysurfx-*
