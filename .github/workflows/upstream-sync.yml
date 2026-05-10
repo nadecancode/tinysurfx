@@ -95,8 +95,11 @@ jobs:
           \`\`\`"
           fi
 
+          # `--repo` is essential: with the `upstream` git remote present, gh
+          # would otherwise try to open the PR against neon-mmd/websurfx.
           # Filter these PRs in the UI by branch pattern: head:upstream-sync/*
           gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
             --base rolling \
             --head "$BRANCH" \
             --title "chore: merge upstream/rolling" \
