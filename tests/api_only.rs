@@ -5,8 +5,20 @@
 
 use websurfx::api_config::Config;
 
+use std::sync::{Mutex, MutexGuard};
+
+/// Serializes env-mutating tests so they're correct regardless of --test-threads.
+/// Using a global mutex is more robust than relying on the cargo flag.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Acquire the env lock. Tolerate poisoning (a panicking test still leaves env in a known state via EnvGuard's Drop).
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[test]
 fn from_env_uses_defaults_when_unset() {
+    let _lock = env_lock();
     // Snapshot env, clear all TINYSURFX_* vars, restore on drop via a guard.
     let _guard = EnvGuard::clear_tinysurfx();
     let cfg = Config::from_env().expect("defaults");
@@ -18,6 +30,7 @@ fn from_env_uses_defaults_when_unset() {
 
 #[test]
 fn from_env_reads_bind_split() {
+    let _lock = env_lock();
     let _guard = EnvGuard::set("TINYSURFX_BIND", "0.0.0.0:9090");
     let cfg = Config::from_env().expect("ok");
     assert_eq!(cfg.binding_ip, "0.0.0.0");
@@ -25,7 +38,17 @@ fn from_env_reads_bind_split() {
 }
 
 #[test]
+fn from_env_handles_ipv6_bracketed_bind() {
+    let _lock = env_lock();
+    let _guard = EnvGuard::set("TINYSURFX_BIND", "[::1]:8080");
+    let cfg = Config::from_env().expect("ok");
+    assert_eq!(cfg.binding_ip, "::1");
+    assert_eq!(cfg.port, 8080);
+}
+
+#[test]
 fn from_env_reads_engines_csv() {
+    let _lock = env_lock();
     let _guard = EnvGuard::set("TINYSURFX_ENGINES", "duckduckgo,brave,searx");
     let cfg = Config::from_env().expect("ok");
     assert_eq!(cfg.upstream_search_engines.len(), 3);
@@ -34,6 +57,7 @@ fn from_env_reads_engines_csv() {
 
 #[test]
 fn from_env_reads_numeric_fields() {
+    let _lock = env_lock();
     let _g1 = EnvGuard::set("TINYSURFX_THREADS", "8");
     let _g2 = EnvGuard::set("TINYSURFX_REQUEST_TIMEOUT_SECS", "45");
     let _g3 = EnvGuard::set("TINYSURFX_RATE_LIMIT_RPS", "100");
@@ -56,7 +80,7 @@ struct EnvGuard {
 impl EnvGuard {
     fn set(key: &str, val: &str) -> Self {
         let prior = vec![(key.to_string(), std::env::var(key).ok())];
-        // SAFETY: tests are run with --test-threads=1 (see step 2.3)
+        // SAFETY: tests acquire ENV_LOCK before mutating env (see env_lock()).
         unsafe { std::env::set_var(key, val); }
         Self { keys: vec![key.to_string()], prior }
     }

@@ -104,6 +104,8 @@ impl Config {
 
         if let Ok(bind) = env::var("TINYSURFX_BIND") {
             let (host, port) = bind.rsplit_once(':').ok_or_else(|| ConfigError::BadBind(bind.clone()))?;
+            // Strip IPv6 brackets if present (e.g. "[::1]" -> "::1").
+            let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
             cfg.binding_ip = host.to_string();
             cfg.port = port.parse().map_err(|_| ConfigError::BadBind(bind.clone()))?;
         }
