@@ -84,6 +84,10 @@ pub enum ConfigError {
     BadFlag(String),
     /// User passed `--help` / `-h`. Caller should print help and exit 0.
     HelpRequested,
+    /// Safesearch level 3 or 4 requires allowlist/blocklist files; not supported in v1.
+    SafesearchUnsupported(u8),
+    /// A configuration value failed range/sanity validation.
+    InvalidValue(String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -95,6 +99,8 @@ impl std::fmt::Display for ConfigError {
             Self::BadProxy(s) => write!(f, "TINYSURFX_PROXY is not a valid URL: {s}"),
             Self::BadFlag(s) => write!(f, "{s}"),
             Self::HelpRequested => write!(f, "help requested"),
+            Self::SafesearchUnsupported(n) => write!(f, "safesearch level {n} is not supported in the api-only edition (allowed: 0..=2)"),
+            Self::InvalidValue(s) => write!(f, "{s}"),
         }
     }
 }
@@ -204,6 +210,15 @@ impl Config {
                 }
                 other => return Err(ConfigError::BadFlag(format!("unknown flag {other:?}"))),
             }
+        }
+        if cfg.safe_search > 2 {
+            return Err(ConfigError::SafesearchUnsupported(cfg.safe_search));
+        }
+        if cfg.threads == 0 {
+            return Err(ConfigError::InvalidValue("threads must be > 0".into()));
+        }
+        if cfg.upstream_search_engines.is_empty() {
+            return Err(ConfigError::InvalidValue("at least one engine must be enabled".into()));
         }
         Ok(cfg)
     }

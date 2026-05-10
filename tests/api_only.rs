@@ -95,6 +95,48 @@ fn cli_help_returns_help_request() {
     assert!(matches!(err, Err(ConfigError::HelpRequested)));
 }
 
+#[test]
+fn rejects_safesearch_3() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_SAFE_SEARCH", "3");
+    let result = Config::from_env_and_args(&[]);
+    // Format only the err side: Config doesn't derive Debug (reqwest::Proxy lacks it),
+    // but ConfigError does.
+    assert!(matches!(result, Err(ConfigError::SafesearchUnsupported(3))),
+        "expected SafesearchUnsupported(3), got err={:?}", result.as_ref().err());
+}
+
+#[test]
+fn rejects_safesearch_4() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_SAFE_SEARCH", "4");
+    assert!(matches!(Config::from_env_and_args(&[]), Err(ConfigError::SafesearchUnsupported(4))));
+}
+
+#[test]
+fn accepts_safesearch_0_through_2() {
+    let _lock = env_lock();
+    for level in 0u8..=2 {
+        let _g = EnvGuard::set("TINYSURFX_SAFE_SEARCH", &level.to_string());
+        let cfg = Config::from_env_and_args(&[]).expect("ok");
+        assert_eq!(cfg.safe_search, level);
+    }
+}
+
+#[test]
+fn rejects_zero_threads() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_THREADS", "0");
+    assert!(matches!(Config::from_env_and_args(&[]), Err(ConfigError::InvalidValue(_))));
+}
+
+#[test]
+fn rejects_empty_engines() {
+    let _lock = env_lock();
+    let _g = EnvGuard::set("TINYSURFX_ENGINES", "");
+    assert!(matches!(Config::from_env_and_args(&[]), Err(ConfigError::InvalidValue(_))));
+}
+
 // --- Helpers ---
 
 /// Tiny RAII guard so tests don't pollute each other's env. Cargo runs
